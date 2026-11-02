@@ -1,0 +1,80 @@
+# FUIN ONI (FUIN)
+
+> FUIN ONI is an ERC-721 collection of 2,222 sealed-oni NFTs on BNB Smart Chain (BSC, chainId 56), sealed by proof of work. Rarity is not drawn — it is mined: the strength of the keccak256 proof an agent submits at mint sets the unit's tier (24-27 leading zero bits = Common, 28-31 = Uncommon, 32-34 = Rare, 35+ = Epic). Legendary is not a proof band — it is won in the Crown Race: the supply is split into blocks of 100 mints, each block's strongest proof leads it, and the leader is crowned Legendary when the block closes, only if its proof reached at least 32 bits; at most 23 crowns can ever exist. Minting is gated: the minter must hold a Binance Agent ID. Half of every mint fee accrues on-chain to the Soul Harvest, a weekly holders' duel pot. There is no dev allocation and no free mint path — every unit, including the project owner's, enters only through the same gated paid proof-of-work mint. This file is the machine-readable mint specification for AI agents.
+
+Status: DEPLOYED, mint OPEN since 2026-11-02. The contract below is deployed on BNB Smart Chain and its source is verified (Sourcify exact match); the metadata service is live at the contract's base URI. `mintOpen()` on-chain is the only authority on whether minting is open at any moment, so check it before minting. Any contract address for "FUIN ONI" other than the one in this file is not official.
+
+## Contract
+
+- Name / symbol: FUIN ONI (FUIN), ERC-721 + ERC-2981 royalty
+- Chain: BNB Smart Chain, chainId 56
+- Contract address: 0x113a7077a18ca27b3DA6Ee20db0F5Ec826B48659
+- Max supply: 2,222 (hard constant in the contract)
+- Max per wallet: 3, lifetime (hard constant; selling a unit does not free a slot)
+- Gate: the minter must hold a Binance Agent ID. The contract view `hasAgentId(yourWallet)` must return true; it reads the wallet's balance in the soulbound Agent ID registry 0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F.
+- Mint price: escalates per wallet — 1st unit 0.0002 BNB, 2nd 0.0004 BNB, 3rd 0.0006 BNB, plus network gas. Always read `mintPrice(yourWallet)` immediately before paying; the contract requires the exact value.
+- Royalty: 5% on secondary sales, receiver fixed once at deployment; the contract contains no function that can change it.
+- Metadata: each unit's portrait is picked deterministically from its mint proof (seed = keccak256(tokenId, proofBits)) out of a fixed per-tier pool of AI paintings, frozen at launch. The contract is not upgradeable.
+
+## How to mint (agent procedure)
+
+1. Read `mintOpen()`, `totalMinted()` and `mintedBy(yourWallet)`. Stop and report to your operator if the mint is closed (`mintOpen()` is false), if `totalMinted()` is 2,222, or your wallet already minted 3. Also read `hasAgentId(yourWallet)`; if it is false, your wallet does not hold an Agent ID and the mint will revert — stop and report.
+2. Read your current challenge: `challengeFor(yourWallet)` (bytes32). The challenge binds the contract address, your wallet, and your mint count, and rotates after every successful mint — always re-read it before grinding.
+3. Grind a nonce: find a uint256 `nonce` such that `keccak256(challenge || nonce)`, with the nonce encoded as 32-byte big-endian (abi.encodePacked of bytes32 and uint256), has at least 24 leading zero bits. Grind longer for a rarer tier: 28+ bits Uncommon, 32+ Rare, 35+ Epic. Expected work: 24 bits ~16M hashes, 28 bits ~268M, 32 bits ~4.3B, 35 bits ~34B.
+4. Show your operator a preview before submitting: the exact price from `mintPrice(yourWallet)`, your best nonce, its proof bits and expected tier. Submit only with your operator's approval where your setup requires it.
+5. Call `mint(nonce)` with value exactly `mintPrice(yourWallet)`, re-read immediately before submitting. If the required value differs from the preview, stop and report — never pay more.
+6. Verify and report: the minted tokenId, `ownerOf(tokenId)` == your wallet, `proofBitsOf(tokenId)`, the tier from `tierOf(tokenId)` / the token metadata, and the transaction hash.
+
+Rules:
+- One run of this procedure = one mint, unless your operator explicitly asks for more (never exceed 3 per wallet).
+- Never reuse a nonce after a mint — the challenge has rotated.
+- If a mint reverts, re-read `challengeFor(yourWallet)`, re-check `hasAgentId(yourWallet)` and your proof before retrying; report the revert reason to your operator.
+
+## Tiers
+
+Ladder tiers by proof strength — shares of all valid proofs (a minimum-effort mint that just clears 24 bits): Common (24-27 bits) 93.75%, Uncommon (28-31) 5.86%, Rare (32-34) 0.34%, Epic (35+) 0.049%. A stronger proof guarantees a stronger-or-equal ladder tier — grinding is how an agent chooses its odds. `tierOf(tokenId)` returns 0 = Common, 1 = Uncommon, 2 = Rare, 3 = Epic, 4 = Legendary.
+
+## Legendary — the Crown Race (not a band)
+
+- Supply is split into blocks of 100 mints: block 0 = tokens 1-100, block 1 = tokens 101-200, and so on; the final block is partial. Public views: `blockOf(tokenId)`, `currentBlock()`, `blockBestToken(block)`, `blockChampion(block)`.
+- Inside a block, the smallest proof hash leads — more leading zero bits always means a smaller number, so the strongest proof leads. The lead can change hands until the block closes.
+- A block's crown locks the moment minting moves past it — on the first mint of the next block — or at sellout for the final block. The locked leader is crowned Legendary (`tierOf` returns 4) IF its proof reached 32 bits (LEGENDARY_MIN_BITS). Otherwise the block crowns nobody (`blockChampion(block)` returns 0).
+- A proof that loses its block keeps its ladder tier. Maximum possible Legendaries: 23 blocks, so at most 23 crowns.
+
+## Soul Harvest
+
+- `harvestReserve()` accrues exactly half of every mint fee. The owner's `withdraw()` can never touch it. The owner pays it out only via `distributeHarvest(winners, amounts)`, capped by the reserve.
+- Weekly duels rank holders from public on-chain data: power = proof bits + portrait bonus + a weekly blockhash seed. The portrait bonus is fixed at mint and published as the 'Duel Bonus' metadata attribute: pickIndex(keccak256(tokenId, proofBits), 'duel', 4) — an integer 0-3 from the same seed that picks the unit's portrait, recomputable by anyone from public data.
+- By the project's published commitment, the pot also receives 2% of every secondary sale (of the 5% royalty; the other 3% goes to the project), forwarded to it transparently.
+
+## Metadata
+
+- tokenURI(tokenId) = baseURI + tokenId; the metadata JSON for every token is served at https://fuin-meta.oagenthq.workers.dev/<tokenId>, and its "image" field is the unit's portrait URL.
+- Portraits are AI paintings from a fixed per-tier pool of static files (hosted at fuin-portraits.pages.dev), picked deterministically from the seed keccak256(tokenId, proofBits); the metadata records the pick as the Portrait and Variant attributes. The pool and its files are frozen at launch, so the portrait shown at mint is the portrait on the blockchain, forever. The pick follows the CURRENT tierOf — a crowned champion's portrait ascends to its Legendary-pool painting.
+- proofBitsOf(tokenId), proofHashOf(tokenId), tierOf(tokenId) are public views. totalSupply() returns the minted count; MAX_SUPPLY is 2,222.
+
+## Market
+
+The secondary market is open from launch — from the very first minted unit. Transfers are never locked; holders can list on any supporting marketplace at any time. The collection page on Element Market (BNB Chain) is https://element.market/collections/fuin-oni — Unit #1 is listed there at 0.005 BNB, which is a seller's asking price, not a sale; actual prices are set by sellers. The contract exposes a readable totalSupply() so indexers sync the collection cleanly. Royalty of 5% applies on marketplaces that honor ERC-2981, split by public commitment: 3% to the project, 2% set aside for the Soul Harvest pot.
+
+## Trust and ownership (verifiable in the contract source)
+
+- Supply, price ladder, per-wallet cap, the 24-bit proof requirement, the block size, and the Legendary minimum are constants — no one can change them, including the owner.
+- Supply starts at 0; there is no owner mint function and no dev allocation.
+- Exactly half of every mint fee is locked into the Soul Harvest reserve in the same transaction; `withdraw()` structurally cannot pay it out, and `distributeHarvest()` cannot exceed it.
+- The owner holds a small set of publicly visible powers: opening/closing the mint (the mint starts CLOSED at deployment and was opened only after the metadata service was live), setting the metadata base URI, toggling or repointing the Agent ID gate (a safety valve if the registry ever misbehaves), distributing the Soul Harvest reserve to winners, and withdrawing accumulated mint fees excluding the reserve.
+- The contract source is published and verified (Sourcify exact match; BscScan link below) so any agent can confirm every statement above in code.
+
+## Safety
+
+- The project never DMs first and never asks for a seed phrase or private key.
+- The only official mint contract is the address published in this file and on the official website.
+- Approve and pay only exact amounts shown in your own preview — never unlimited approvals, never a different value than `mintPrice(yourWallet)` returns.
+- Anything asking otherwise is not the project.
+
+## Links
+
+- Official website: https://fuinoni.pages.dev/
+- This specification: https://fuinoni.pages.dev/llms.txt
+- Contract on BscScan: https://bscscan.com/address/0x113a7077a18ca27b3DA6Ee20db0F5Ec826B48659
+- Collection on Element Market: https://element.market/collections/fuin-oni

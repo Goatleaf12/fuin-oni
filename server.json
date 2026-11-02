@@ -1,0 +1,1 @@
+{"$schema":"https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json","description":"Read FUIN ONI state (incl. Crown Race + Soul Harvest), grind PoW mint proofs, build unsigned mint calldata on BSC. Never signs.","name":"io.github.Goatleaf12/fuin-oni","repository":{"source":"github","url":"https://github.com/Goatleaf12/fuin-oni"},"version":"1.0.0"}
